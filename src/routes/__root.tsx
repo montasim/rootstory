@@ -1,7 +1,6 @@
 import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router"
-import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools"
-import { TanStackDevtools } from "@tanstack/react-devtools"
 
+import { TooltipProvider } from "@/components/ui/tooltip"
 import appCss from "../styles.css?url"
 
 export const Route = createRootRoute({
@@ -15,10 +14,17 @@ export const Route = createRootRoute({
         content: "width=device-width, initial-scale=1",
       },
       {
-        title: "TanStack Start Starter",
+        name: "description",
+        content: "A private, calm workspace for preserving family stories.",
       },
+      { title: "Rootstory — Private family archive" },
     ],
     links: [
+      {
+        rel: "icon",
+        type: "image/svg+xml",
+        href: "/rootstory-mark.svg",
+      },
       {
         rel: "stylesheet",
         href: appCss,
@@ -26,9 +32,16 @@ export const Route = createRootRoute({
     ],
   }),
   notFoundComponent: () => (
-    <main className="container mx-auto p-4 pt-16">
-      <h1>404</h1>
-      <p>The requested page could not be found.</p>
+    <main className="grid min-h-svh place-items-center bg-background p-6 text-center">
+      <section className="space-y-2">
+        <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+          404
+        </p>
+        <h1 className="text-2xl font-semibold">This branch is not here.</h1>
+        <p className="text-sm text-muted-foreground">
+          Return to the family workspace and choose another path.
+        </p>
+      </section>
     </main>
   ),
   shellComponent: RootDocument,
@@ -36,23 +49,12 @@ export const Route = createRootRoute({
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
         <HeadContent />
       </head>
       <body>
-        {children}
-        <TanStackDevtools
-          config={{
-            position: "bottom-right",
-          }}
-          plugins={[
-            {
-              name: "Tanstack Router",
-              render: <TanStackRouterDevtoolsPanel />,
-            },
-          ]}
-        />
+        <TooltipProvider>{children}</TooltipProvider>
         <Scripts />
       </body>
     </html>
