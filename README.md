@@ -5,6 +5,8 @@ preserving life details and photographs, and keeping a portable copy of family
 history. It runs in the browser without an account and does not automatically
 upload archive data.
 
+[Open Rootstory](https://rootstory-240.netlify.app) · [View source](https://github.com/montasim/rootstory)
+
 ## What Rootstory does
 
 - Builds a visual family tree with parent, child, partner, former-partner, and
