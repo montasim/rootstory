@@ -1,6 +1,14 @@
 {
   "name": "rootstory",
   "description": "A private, local-first family tree and story archive.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/montasim/rootstory.git"
+  },
+  "bugs": {
+    "url": "https://github.com/montasim/rootstory/issues"
+  },
   "private": true,
   "packageManager": "pnpm@11.7.0",
   "engines": {

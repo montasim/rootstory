@@ -158,6 +158,4 @@ variables are required by the current application.
 
 ## License
 
-No license file is currently included. Copyright law therefore reserves reuse,
-modification, and redistribution rights unless the repository owner grants
-permission separately.
+Rootstory is available under the [MIT License](LICENSE).
