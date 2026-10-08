@@ -1,6 +1,11 @@
-# TanStack Start + shadcn/ui
+# Rootstory
 
-This is a template for a new TanStack Start project with React, TypeScript, and shadcn/ui.
+Rootstory is a private, local-first workspace for mapping family relationships,
+preserving life stories, and exporting a portable family archive.
+
+Built with TypeScript, TanStack Start, shadcn/ui, Tailwind CSS, and Hugeicons.
+
+Package: `rootstory`
 
 ## Adding components
 
