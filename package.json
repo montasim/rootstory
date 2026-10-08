@@ -9,7 +9,7 @@
   "bugs": {
     "url": "https://github.com/montasim/rootstory/issues"
   },
-  "homepage": "https://rootstory-240.netlify.app",
+  "homepage": "https://therootstory.netlify.app",
   "private": true,
   "packageManager": "pnpm@11.7.0",
   "engines": {

@@ -7,7 +7,7 @@ upload archive data.
 
 ## Try Rootstory
 
-[Open the hosted app](https://rootstory-240.netlify.app) or browse the
+[Open the hosted app](https://therootstory.netlify.app) or browse the
 [source on GitHub](https://github.com/montasim/rootstory). The hosted app stores
 the archive in that browser only; opening it on another device starts a separate
 local archive unless you transfer a complete backup.
@@ -154,7 +154,7 @@ The verified build contract is:
 variables are required by the current application.
 
 The current production deployment is available at
-[rootstory-240.netlify.app](https://rootstory-240.netlify.app).
+[therootstory.netlify.app](https://therootstory.netlify.app).
 
 ## Contributing
 
