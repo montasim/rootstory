@@ -5,7 +5,12 @@ preserving life details and photographs, and keeping a portable copy of family
 history. It runs in the browser without an account and does not automatically
 upload archive data.
 
-[Open Rootstory](https://rootstory-240.netlify.app) · [View source](https://github.com/montasim/rootstory)
+## Try Rootstory
+
+[Open the hosted app](https://rootstory-240.netlify.app) or browse the
+[source on GitHub](https://github.com/montasim/rootstory). The hosted app stores
+the archive in that browser only; opening it on another device starts a separate
+local archive unless you transfer a complete backup.
 
 ## What Rootstory does
 
@@ -147,6 +152,16 @@ The verified build contract is:
 
 `netlify.toml` records the build and development settings. No environment
 variables are required by the current application.
+
+The current production deployment is available at
+[rootstory-240.netlify.app](https://rootstory-240.netlify.app).
+
+## Contributing
+
+Issues and pull requests are welcome in the
+[GitHub repository](https://github.com/montasim/rootstory). Before submitting a
+change, run `pnpm check`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, and
+`pnpm build`.
 
 ## Project status and limitations
 
