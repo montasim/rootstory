@@ -33,36 +33,36 @@ const features = [
 
 const people = [
   {
-    initials: "EM",
-    name: "Elias Moreno",
-    dates: "1929 — 2014",
+    initials: "AR",
+    name: "Azizur Rahman",
+    dates: "c. 1934 — 2014",
     className:
       "left-[6%] top-[9%] border-amber-300/70 bg-amber-50 dark:bg-amber-950/30",
   },
   {
-    initials: "IR",
-    name: "Inês Rocha",
-    dates: "1934 — 2019",
+    initials: "SK",
+    name: "Sufia Khatun",
+    dates: "1938 — 2019",
     className:
       "right-[5%] top-[9%] border-rose-300/70 bg-rose-50 dark:bg-rose-950/30",
   },
   {
-    initials: "TM",
-    name: "Tomás Moreno",
+    initials: "AK",
+    name: "Abdul Karim",
     dates: "1959 — present",
     className:
       "left-1/2 top-[40%] -translate-x-1/2 border-emerald-300/70 bg-emerald-50 dark:bg-emerald-950/30",
   },
   {
-    initials: "AM",
-    name: "Ada Moreno",
+    initials: "FR",
+    name: "Farhana Rahman",
     dates: "1988 — present",
     className:
       "left-[8%] top-[72%] border-indigo-300/70 bg-indigo-50 dark:bg-indigo-950/30",
   },
   {
-    initials: "LM",
-    name: "Leo Moreno",
+    initials: "RR",
+    name: "Rafiq Rahman",
     dates: "1991 — present",
     className:
       "right-[7%] top-[72%] border-teal-300/70 bg-teal-50 dark:bg-teal-950/30",
@@ -85,7 +85,7 @@ function FamilyArchivePreview() {
           <p className="text-[0.64rem] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
             Family archive · Branch 01
           </p>
-          <p className="mt-1 text-sm font-semibold">The Moreno family</p>
+          <p className="mt-1 text-sm font-semibold">The Rahman family</p>
         </div>
         <span className="rotate-[-3deg] rounded-md border border-emerald-700/30 bg-emerald-50 px-2 py-1 text-[0.58rem] font-bold tracking-[0.14em] text-emerald-800 uppercase dark:bg-emerald-950/40 dark:text-emerald-200">
           Local copy
@@ -147,13 +147,13 @@ export function LandingPage() {
           aria-label="Main navigation"
         >
           <a
-            className="transition-colors hover:text-foreground"
+            className="inline-flex min-h-11 items-center transition-colors hover:text-foreground"
             href="#what-it-keeps"
           >
             What it keeps
           </a>
           <a
-            className="transition-colors hover:text-foreground"
+            className="inline-flex min-h-11 items-center transition-colors hover:text-foreground"
             href="#privacy"
           >
             Privacy

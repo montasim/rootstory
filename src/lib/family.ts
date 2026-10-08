@@ -108,7 +108,7 @@ const person = (
 
 export const demoArchive: Archive = {
   version: 1,
-  activeFamilyId: "moreno",
+  activeFamilyId: "rahman",
   updatedAt: "2026-10-08T00:00:00.000Z",
   settings: {
     theme: "light",
@@ -119,60 +119,63 @@ export const demoArchive: Archive = {
   },
   families: [
     {
-      id: "moreno",
-      name: "The Moreno archive",
+      id: "rahman",
+      name: "The Rahman family archive",
       anchorId: "ada",
       shares: [],
       people: [
-        person("ada", "Ada Moreno", "You", "1988-04-12", "indigo", {
+        person("ada", "Farhana Rahman", "You", "1988-04-12", "indigo", {
           gender: "female",
-          location: "Lisbon, Portugal",
+          location: "Dhaka, Bangladesh",
           work: "Architect",
-          email: "ada@example.test",
-          note: "Collects family recipes and is mapping the Moreno branch.",
+          email: "farhana@example.test",
+          phone: "+880 1712-345678",
+          note: "Collects family recipes and is mapping the Rahman branch.",
         }),
-        person("tomas", "Tomás Moreno", "Father", "1959-02-02", "moss", {
+        person("tomas", "Abdul Karim", "Father", "1959-02-02", "moss", {
           gender: "male",
-          location: "Porto, Portugal",
+          location: "Rajshahi, Bangladesh",
           work: "Retired teacher",
           note: "Keeps the oldest letters and school photographs in the archive.",
         }),
-        person("maya", "Maya Moreno", "Mother", "1962-08-19", "rose", {
+        person("maya", "Nasima Begum", "Mother", "1962-08-19", "rose", {
           gender: "female",
-          location: "Porto, Portugal",
-          work: "Ceramic artist",
+          location: "Rajshahi, Bangladesh",
+          work: "Nakshi kantha artisan",
           note: "Recorded the oral history for three generations of the family.",
         }),
-        person("elias", "Elias Moreno", "Grandfather", "1929-06-03", "amber", {
+        person("elias", "Azizur Rahman", "Grandfather", "1934", "amber", {
           gender: "male",
+          birthQualifier: "about",
           living: false,
           deathDate: "2014-11-20",
-          location: "Braga, Portugal",
+          location: "Pabna, Bangladesh",
           work: "Carpenter",
           note: "Built the long dining table still used at family gatherings.",
         }),
-        person("ines", "Inês Rocha", "Grandmother", "1934-09-14", "rose", {
+        person("ines", "Sufia Khatun", "Grandmother", "1938-09-14", "rose", {
           gender: "female",
           living: false,
           deathDate: "2019-01-08",
-          location: "Braga, Portugal",
+          location: "Pabna, Bangladesh",
           work: "Tailor",
-          note: "Her notebooks contain measurements, poems, and pressed flowers.",
+          note: "Her notebooks contain measurements, poems, and family recipes.",
         }),
-        person("leo", "Leo Moreno", "Brother", "1991-12-27", "moss", {
+        person("leo", "Rafiq Rahman", "Brother", "1991-12-27", "moss", {
           gender: "male",
-          location: "Madrid, Spain",
+          location: "Chattogram, Bangladesh",
           work: "Sound designer",
-          note: "Digitizing cassette recordings from family celebrations.",
+          note: "Digitizing cassette recordings from Eid family gatherings.",
         }),
-        person("noa", "Noa Silva", "Partner", "1989-05-06", "amber", {
-          location: "Lisbon, Portugal",
+        person("noa", "Samira Ahmed", "Partner", "1989-05-06", "amber", {
+          gender: "female",
+          location: "Dhaka, Bangladesh",
           work: "Editor",
           note: "Helps preserve context around photographs and letters.",
         }),
-        person("june", "June Moreno", "Daughter", "2018-10-10", "indigo", {
+        person("june", "Maliha Rahman", "Daughter", "2018-10-10", "indigo", {
           gender: "female",
-          location: "Lisbon, Portugal",
+          location: "Dhaka, Bangladesh",
           work: "Student",
           note: "The youngest storyteller in this branch.",
         }),
@@ -189,7 +192,7 @@ export const demoArchive: Archive = {
           to: "noa",
           type: "partner",
           date: "2015-06-20",
-          location: "Lisbon, Portugal",
+          location: "Dhaka, Bangladesh",
         },
         { id: "r7", from: "ada", to: "june", type: "biological parent" },
       ],
@@ -219,6 +222,14 @@ export function formatPartialDate(value: string, locale?: string) {
     month: "short",
     ...(day ? { day: "numeric" as const } : {}),
   }).format(date)
+}
+
+export function estimateBirthYear(deathDate: string, ageAtDeath: string) {
+  if (!/^\d{4}(?:-\d{2})?(?:-\d{2})?$/.test(deathDate)) return ""
+  if (!/^\d{1,3}$/.test(ageAtDeath)) return ""
+  const age = Number(ageAtDeath)
+  if (age > 130) return ""
+  return String(Number(deathDate.slice(0, 4)) - age)
 }
 
 export const isConnectedPerson = (family: Family, personId: string) =>
@@ -443,6 +454,35 @@ export function relationshipEnds(
 ) {
   if (type.includes("parent")) return { from: targetId, to: selectedId }
   return { from: selectedId, to: targetId }
+}
+
+export function relationshipTypeForPerson(
+  relationship: Relationship,
+  personId: string
+): RelationshipType {
+  if (relationship.from === personId && relationship.type.includes("parent"))
+    return "child"
+  if (relationship.to === personId && relationship.type === "child")
+    return "biological parent"
+  return relationship.type
+}
+
+export function relationshipDescription(
+  relationship: Relationship,
+  fromName: string,
+  toName: string
+) {
+  if (relationship.type.includes("parent"))
+    return `${fromName} is a ${relationship.type} of ${toName}.`
+  if (relationship.type === "child")
+    return `${fromName} is a parent of ${toName}.`
+  if (relationship.type === "sibling")
+    return `${fromName} and ${toName} are siblings.`
+  if (relationship.type === "partner")
+    return `${fromName} and ${toName} are partners.`
+  if (relationship.type === "ex-partner")
+    return `${fromName} and ${toName} were partners.`
+  return `${fromName} is a godparent of ${toName}.`
 }
 
 export function generationMap(family: Family) {

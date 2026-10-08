@@ -1,10 +1,18 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react"
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react"
 import type { ZodType } from "zod"
 import {
   Add01Icon,
   ArrowExpandIcon,
   BirthdayCakeIcon,
   Briefcase01Icon,
+  Call02Icon,
   Cancel01Icon,
   Calendar03Icon,
   CenterFocusIcon,
@@ -15,7 +23,6 @@ import {
   File01Icon,
   GitBranchIcon,
   HistoryIcon,
-  Home01Icon,
   Image01Icon,
   InformationCircleIcon,
   Location01Icon,
@@ -69,11 +76,13 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
@@ -104,12 +113,15 @@ import {
   cloneArchive,
   descendantIds,
   demoArchive,
+  estimateBirthYear,
   formatPartialDate,
   generationMap,
   initials,
   isConnectedPerson,
   orderPeopleForTree,
   relationshipEnds,
+  relationshipDescription,
+  relationshipTypeForPerson,
   searchPeople,
   treeParentGroups,
   treeParentUnits,
@@ -130,6 +142,8 @@ import {
 } from "@/lib/portable"
 import {
   type ArchiveVersion,
+  pushHistory,
+  relativeTime,
   loadWorkspace,
   saveWorkspace,
   trimHistory,
@@ -154,7 +168,7 @@ type IconData = Parameters<typeof HugeiconsIcon>[0]["icon"]
 type View = "tree" | "people" | "timeline" | "calendar"
 type TreeCommand = {
   id: number
-  type: "center" | "fit"
+  type: "center" | "center-tree" | "fit"
   personId?: string
 }
 const tones: Record<Person["tone"], string> = {
@@ -179,6 +193,24 @@ const relationshipOptions: {
   { value: "godparent", label: "Godparent" },
   { value: "sibling", label: "Sibling" },
 ]
+const relationshipGroups = [
+  {
+    label: "Parents and children",
+    types: [
+      "child",
+      "biological parent",
+      "adopted parent",
+      "foster parent",
+      "surrogate parent",
+      "godparent",
+    ],
+  },
+  { label: "Partners", types: ["partner", "ex-partner"] },
+  { label: "Siblings", types: ["sibling"] },
+] as const satisfies ReadonlyArray<{
+  label: string
+  types: readonly RelationshipType[]
+}>
 const relationshipLabel = (type: RelationshipType) =>
   relationshipOptions.find((option) => option.value === type)?.label || type
 const relationshipChoiceLabel = (
@@ -340,8 +372,8 @@ function PersonSearch({
         <Button
           type="button"
           variant="ghost"
-          size="icon-xs"
-          className="absolute top-1/2 right-1.5 z-10 -translate-y-1/2"
+          size="icon-sm"
+          className="absolute top-1/2 right-0 z-10 -translate-y-1/2"
           aria-label="Clear search"
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => onQueryChange("")}
@@ -552,12 +584,14 @@ function ConfirmAction({
   description,
   action,
   onConfirm,
+  destructive = true,
 }: {
   trigger: React.ReactNode
   title: string
   description: string
   action: string
   onConfirm: () => void
+  destructive?: boolean
 }) {
   return (
     <AlertDialog>
@@ -569,7 +603,10 @@ function ConfirmAction({
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction variant="destructive" onClick={onConfirm}>
+          <AlertDialogAction
+            variant={destructive ? "destructive" : "default"}
+            onClick={onConfirm}
+          >
             {action}
           </AlertDialogAction>
         </AlertDialogFooter>
@@ -592,12 +629,19 @@ function PersonDialog({
     [draft, setDraft] = useState<Person>(() =>
       person ? structuredClone(person) : blankPerson()
     ),
+    [ageAtDeath, setAgeAtDeath] = useState(""),
     [photoError, setPhotoError] = useState("")
   const personValidation = personInputSchema.safeParse(draft),
-    personErrors = validationErrors(personValidation)
+    personErrors = validationErrors(personValidation),
+    estimatedBirthYear = estimateBirthYear(draft.deathDate, ageAtDeath),
+    ageAtDeathError =
+      ageAtDeath && !estimatedBirthYear
+        ? "Enter an age from 0 to 130 after adding a death date."
+        : undefined
   useEffect(() => {
     if (open) {
       setDraft(person ? structuredClone(person) : blankPerson())
+      setAgeAtDeath("")
       setPhotoError("")
     }
   }, [open, person])
@@ -618,10 +662,13 @@ function PersonDialog({
     reader.readAsDataURL(file)
   }
   const save = () => {
-    if (!personValidation.success) return
+    if (!personValidation.success || ageAtDeathError) return
     onSave({
       ...draft,
       ...personValidation.data,
+      ...(estimatedBirthYear && !draft.birthDate
+        ? { birthDate: estimatedBirthYear, birthQualifier: "about" as const }
+        : {}),
       id: draft.id || `person-${Date.now()}`,
       location: personValidation.data.location || "Not added",
       work: personValidation.data.work || "Not added",
@@ -633,11 +680,13 @@ function PersonDialog({
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{person ? "Edit person" : "Add a person"}</DialogTitle>
+          <DialogTitle>
+            {person ? "Edit person" : "Create an unconnected person"}
+          </DialogTitle>
           <DialogDescription>
             {person
               ? "Update this record. Partial dates and local photos are supported."
-              : "This creates an unconnected record. To place someone in the tree, select a person and use Add relative instead."}
+              : "Use this for someone whose place in the tree is not known yet. After saving, use Add relative from their details to connect them."}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 sm:grid-cols-2">
@@ -649,6 +698,7 @@ function PersonDialog({
           >
             <Input
               id={`${uid}-name`}
+              placeholder="e.g. Farhana Rahman"
               value={draft.name}
               onChange={(e) => patch("name", e.target.value)}
               maxLength={120}
@@ -670,6 +720,7 @@ function PersonDialog({
           >
             <Input
               id={`${uid}-relation`}
+              placeholder="e.g. Khala or Family friend"
               value={draft.relation}
               onChange={(e) => patch("relation", e.target.value)}
               maxLength={60}
@@ -713,7 +764,14 @@ function PersonDialog({
           </Field>
           <Field
             id={`${uid}-birth`}
-            label="Birth date"
+            label={
+              <>
+                <span>Birth date</span>
+                <span className="ml-auto text-xs font-normal text-muted-foreground">
+                  Optional
+                </span>
+              </>
+            }
             hint="Use YYYY, YYYY-MM or YYYY-MM-DD."
             error={draft.birthDate ? personErrors.birthDate : undefined}
           >
@@ -765,26 +823,57 @@ function PersonDialog({
             </Label>
           </Field>
           {!draft.living && (
-            <Field
-              id={`${uid}-death`}
-              label="Death date"
-              hint="Use YYYY, YYYY-MM or YYYY-MM-DD."
-              error={personErrors.deathDate}
-            >
-              <Input
+            <>
+              <Field
                 id={`${uid}-death`}
-                inputMode="numeric"
-                placeholder="YYYY-MM-DD"
-                value={draft.deathDate}
-                onChange={(e) => patch("deathDate", e.target.value)}
-                aria-invalid={!!personErrors.deathDate}
-                aria-describedby={
-                  personErrors.deathDate
-                    ? `${uid}-death-error`
-                    : `${uid}-death-hint`
-                }
-              />
-            </Field>
+                label="Death date"
+                hint="Use YYYY, YYYY-MM or YYYY-MM-DD."
+                error={personErrors.deathDate}
+              >
+                <Input
+                  id={`${uid}-death`}
+                  inputMode="numeric"
+                  placeholder="YYYY-MM-DD"
+                  value={draft.deathDate}
+                  onChange={(e) => patch("deathDate", e.target.value)}
+                  aria-invalid={!!personErrors.deathDate}
+                  aria-describedby={
+                    personErrors.deathDate
+                      ? `${uid}-death-error`
+                      : `${uid}-death-hint`
+                  }
+                />
+              </Field>
+              {!draft.birthDate && (
+                <Field
+                  id={`${uid}-age-at-death`}
+                  label="Age at death"
+                  hint={
+                    estimatedBirthYear
+                      ? `Estimated birth year: about ${estimatedBirthYear}.`
+                      : "Optional; estimates the birth year."
+                  }
+                  error={ageAtDeathError}
+                >
+                  <Input
+                    id={`${uid}-age-at-death`}
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    max={130}
+                    placeholder="e.g. 80"
+                    value={ageAtDeath}
+                    onChange={(event) => setAgeAtDeath(event.target.value)}
+                    aria-invalid={!!ageAtDeathError}
+                    aria-describedby={
+                      ageAtDeathError
+                        ? `${uid}-age-at-death-error`
+                        : `${uid}-age-at-death-hint`
+                    }
+                  />
+                </Field>
+              )}
+            </>
           )}
           <details
             className="rounded-xl border bg-muted/20 p-3 sm:col-span-2"
@@ -801,6 +890,7 @@ function PersonDialog({
               >
                 <Input
                   id={`${uid}-place`}
+                  placeholder="e.g. Dhaka, Bangladesh"
                   value={draft.location}
                   onChange={(e) => patch("location", e.target.value)}
                   maxLength={160}
@@ -819,6 +909,7 @@ function PersonDialog({
               >
                 <Input
                   id={`${uid}-work`}
+                  placeholder="e.g. Teacher"
                   value={draft.work}
                   onChange={(e) => patch("work", e.target.value)}
                   maxLength={120}
@@ -838,6 +929,7 @@ function PersonDialog({
                 <Input
                   id={`${uid}-email`}
                   type="email"
+                  placeholder="e.g. farhana@example.com"
                   value={draft.email}
                   onChange={(e) => patch("email", e.target.value)}
                   aria-invalid={!!(draft.email && personErrors.email)}
@@ -856,6 +948,7 @@ function PersonDialog({
                 <Input
                   id={`${uid}-phone`}
                   type="tel"
+                  placeholder="e.g. +880 1712-345678"
                   value={draft.phone}
                   onChange={(e) => patch("phone", e.target.value)}
                   aria-invalid={!!(draft.phone && personErrors.phone)}
@@ -891,6 +984,7 @@ function PersonDialog({
                 >
                   <Textarea
                     id={`${uid}-story`}
+                    placeholder="Add memories, traditions, and stories worth preserving."
                     value={draft.note}
                     onChange={(e) => patch("note", e.target.value)}
                     maxLength={4000}
@@ -911,7 +1005,10 @@ function PersonDialog({
           <Button variant="outline" onClick={() => setOpen(false)}>
             Cancel
           </Button>
-          <Button onClick={save} disabled={!personValidation.success}>
+          <Button
+            onClick={save}
+            disabled={!personValidation.success || !!ageAtDeathError}
+          >
             Save person
           </Button>
         </DialogFooter>
@@ -1004,14 +1101,21 @@ function RelationshipDialog({
         ? `${candidate} will be recorded as ${selected.name}'s ${relationshipLabel(type).toLowerCase()}.`
         : type === "child"
           ? `${candidate} will be recorded as ${selected.name}'s child.`
-          : `${selected.name} and ${candidate} will be connected as ${relationshipLabel(type).toLowerCase()}.`
+          : type === "sibling"
+            ? `${selected.name} and ${candidate} will be connected as siblings.`
+            : type === "partner"
+              ? `${selected.name} and ${candidate} will be connected as partners.`
+              : `${selected.name} and ${candidate} will be connected as former partners.`
       : ""
   return (
     <Dialog
       open={open}
       onOpenChange={(value) => {
         setOpen(value)
-        if (!value) setPreview(false)
+        if (!value) {
+          setMode("existing")
+          setPreview(false)
+        }
       }}
     >
       <DialogTrigger asChild>
@@ -1085,6 +1189,7 @@ function RelationshipDialog({
               >
                 <Input
                   id={`${uid}-new-name`}
+                  placeholder="e.g. Farhana Rahman"
                   value={name}
                   onChange={(e) => {
                     setName(e.target.value)
@@ -1139,18 +1244,28 @@ function RelationshipDialog({
               <SelectValue placeholder="Choose how they are related" />
             </SelectTrigger>
             <SelectContent>
-              {relationshipOptions.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {relationshipChoiceLabel(
-                    option.value,
-                    selected.name,
-                    candidate || undefined
-                  )}
-                </SelectItem>
+              {relationshipGroups.map((group) => (
+                <SelectGroup key={group.label}>
+                  <SelectLabel>{group.label}</SelectLabel>
+                  {group.types.map((value) => (
+                    <SelectItem key={value} value={value}>
+                      {relationshipChoiceLabel(
+                        value,
+                        selected.name,
+                        candidate || undefined
+                      )}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
               ))}
             </SelectContent>
           </Select>
         </Field>
+        {!preview && previewSentence && (
+          <p className="rounded-lg bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+            {previewSentence}
+          </p>
+        )}
         {duplicateRelationship && (
           <p role="alert" className="text-sm text-destructive">
             This exact relationship already exists. Choose another person or
@@ -1194,6 +1309,7 @@ function RelationshipDialog({
           >
             <Input
               id={`${uid}-location`}
+              placeholder="e.g. Dhaka, Bangladesh"
               value={location}
               onChange={(event) => {
                 setLocation(event.target.value)
@@ -1252,12 +1368,18 @@ function ExportDialog({
   onImport,
   onStatus,
   showLabel = false,
+  showTrigger = true,
+  open,
+  onOpenChange,
 }: {
   archive: Archive
   family: Family
   onImport: (archive: Archive) => void
   onStatus: (status: string) => void
   showLabel?: boolean
+  showTrigger?: boolean
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }) {
   const uid = useId()
   const [error, setError] = useState(""),
@@ -1327,17 +1449,19 @@ function ExportDialog({
     }
   }
   return (
-    <Dialog>
-      <DialogTrigger asChild>
-        <Button
-          variant="outline"
-          className={showLabel ? "w-full justify-start" : undefined}
-          aria-label="Share and transfer"
-        >
-          <Icon icon={Share01Icon} />
-          <span>Share &amp; transfer</span>
-        </Button>
-      </DialogTrigger>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      {showTrigger && (
+        <DialogTrigger asChild>
+          <Button
+            variant="outline"
+            className={showLabel ? "w-full justify-start" : undefined}
+            aria-label="Share and transfer"
+          >
+            <Icon icon={Share01Icon} />
+            <span>Share &amp; transfer</span>
+          </Button>
+        </DialogTrigger>
+      )}
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Share or transfer your archive</DialogTitle>
@@ -1346,160 +1470,163 @@ function ExportDialog({
             another application. Rootstory never uploads your archive.
           </DialogDescription>
         </DialogHeader>
-        <Card className="border-primary/30 bg-primary/5 shadow-none">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Icon icon={Database01Icon} />
-              Complete Rootstory archive
-            </CardTitle>
-            <CardDescription>
-              Restores every family, person, relationship, photo, private field,
-              sharing record, and display setting.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <Button onClick={() => save("backup")}>
-              <Icon icon={Download04Icon} />
-              Download complete archive
-            </Button>
-            <p className="text-xs text-muted-foreground">
-              Complete and restorable ·{" "}
-              {Math.ceil(new Blob([backup]).size / 1024)} KB
+        <Tabs defaultValue="backup">
+          <TabsList className="grid h-auto w-full grid-cols-3">
+            <TabsTrigger value="backup">Backup</TabsTrigger>
+            <TabsTrigger value="export">Export</TabsTrigger>
+            <TabsTrigger value="import">Import</TabsTrigger>
+          </TabsList>
+          <TabsContent value="backup" className="pt-2">
+            <Card className="border-primary/30 bg-primary/5 shadow-none">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Icon icon={Database01Icon} />
+                  Complete Rootstory archive
+                </CardTitle>
+                <CardDescription>
+                  Restores every family, person, relationship, photo, private
+                  field, sharing record, and display setting.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Button onClick={() => save("backup")}>
+                  <Icon icon={Download04Icon} />
+                  Download complete archive
+                </Button>
+                <p className="text-xs text-muted-foreground">
+                  Complete and restorable ·{" "}
+                  {Math.ceil(new Blob([backup]).size / 1024)} KB
+                </p>
+                {digest && (
+                  <details className="text-xs text-muted-foreground">
+                    <summary className="cursor-pointer font-medium">
+                      Verify last complete archive
+                    </summary>
+                    <p className="mt-2 break-all">SHA-256: {digest}</p>
+                  </details>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+          <TabsContent value="export" className="space-y-3 pt-2">
+            <p className="text-sm text-muted-foreground">
+              These formats are useful elsewhere but cannot restore a complete
+              Rootstory archive.
             </p>
-          </CardContent>
-        </Card>
-        <div className="space-y-1">
-          <h3 className="font-medium">Export for other applications</h3>
-          <p className="text-sm text-muted-foreground">
-            These formats do not restore a complete Rootstory archive.
-          </p>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <ExportCard
-            icon={GitBranchIcon}
-            title="Genealogy application"
-            note="People and family links for compatible genealogy software. No photos or Rootstory settings."
-            action="Download GEDCOM"
-            onClick={() => save("gedcom")}
-          />
-          <ExportCard
-            icon={Table01Icon}
-            title="Spreadsheet"
-            note="Profile and contact columns. No photos or family connections."
-            action="Download CSV"
-            onClick={() => save("csv")}
-          />
-          <Card className="shadow-none sm:col-span-2">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Icon icon={File01Icon} />
-                Read / print
-              </CardTitle>
-              <CardDescription>
-                A readable copy, not a restorable archive. Photos and contact
-                fields are excluded.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex gap-2">
-              <Button variant="outline" onClick={() => save("text")}>
-                Text
-              </Button>
-              <Button variant="outline" onClick={() => save("html")}>
-                HTML
-              </Button>
-              <Button variant="outline" onClick={() => window.print()}>
-                PDF
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <ExportCard
+                icon={GitBranchIcon}
+                title="Genealogy application"
+                note="People and family links. No photos or Rootstory settings."
+                action="Download GEDCOM"
+                onClick={() => save("gedcom")}
+              />
+              <ExportCard
+                icon={Table01Icon}
+                title="Spreadsheet"
+                note="Profile and contact columns. No family connections."
+                action="Download CSV"
+                onClick={() => save("csv")}
+              />
+              <Card className="shadow-none sm:col-span-2">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Icon icon={File01Icon} />
+                    Read or print
+                  </CardTitle>
+                  <CardDescription>
+                    Readable copies without photos or contact details.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="flex flex-wrap gap-2">
+                  <Button variant="outline" onClick={() => save("text")}>
+                    Text
+                  </Button>
+                  <Button variant="outline" onClick={() => save("html")}>
+                    HTML
+                  </Button>
+                  <Button variant="outline" onClick={() => window.print()}>
+                    Print / save as PDF
+                  </Button>
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+          <TabsContent value="import" className="space-y-4 pt-2">
+            <p className="text-sm text-muted-foreground">
+              Restore a complete Rootstory archive or add a GEDCOM family after
+              reviewing its contents.
+            </p>
+            <Field
+              id={`${uid}-import`}
+              label="Rootstory archive or GEDCOM file"
+            >
+              <Input
+                ref={input}
+                id={`${uid}-import`}
+                type="file"
+                accept=".json,.ged"
+                onChange={(e) => load(e.target.files?.[0])}
+                aria-invalid={!!error}
+                aria-describedby={error ? `${uid}-import-error` : undefined}
+              />
+            </Field>
+            {pending && (
+              <Card className="border-primary/30 shadow-none">
+                <CardHeader>
+                  <CardTitle className="text-sm">Import preview</CardTitle>
+                  <CardDescription>
+                    {pending.families.length}{" "}
+                    {pending.families.length === 1 ? "family" : "families"} ·{" "}
+                    {pending.families.reduce(
+                      (total, item) => total + item.people.length,
+                      0
+                    )}{" "}
+                    people.{" "}
+                    {pendingKind === "archive"
+                      ? "This will replace the current archive in this browser."
+                      : "This will add a family without replacing the current archive."}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="flex flex-wrap gap-2">
+                  <Button
+                    onClick={() => {
+                      onImport(pending)
+                      setPending(null)
+                      setPendingKind(null)
+                    }}
+                  >
+                    {pendingKind === "archive"
+                      ? "Restore complete archive"
+                      : "Add GEDCOM family"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setPending(null)
+                      setPendingKind(null)
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+            {error && (
+              <p
+                id={`${uid}-import-error`}
+                role="alert"
+                className="text-sm text-destructive"
+              >
+                {error}
+              </p>
+            )}
+          </TabsContent>
+        </Tabs>
         {lastExport && (
-          <p
-            role="status"
-            className="rounded-xl border bg-muted/30 p-3 text-sm"
-          >
+          <p role="status" className="rounded-xl bg-muted/50 p-3 text-sm">
             Downloaded <strong>{lastExport}</strong>.
           </p>
-        )}
-        <Separator />
-        <div>
-          <h3 className="font-medium">Import an archive</h3>
-          <p className="text-sm text-muted-foreground">
-            Restore a complete Rootstory archive or add a GEDCOM family after
-            reviewing its contents.
-          </p>
-        </div>
-        <Field
-          id={`${uid}-import`}
-          label="Restore Rootstory archive or import GEDCOM"
-        >
-          <Input
-            ref={input}
-            id={`${uid}-import`}
-            type="file"
-            accept=".json,.ged"
-            onChange={(e) => load(e.target.files?.[0])}
-            aria-invalid={!!error}
-            aria-describedby={error ? `${uid}-import-error` : undefined}
-          />
-        </Field>
-        {pending && (
-          <Card className="border-primary/30 shadow-none">
-            <CardHeader>
-              <CardTitle className="text-sm">Import preview</CardTitle>
-              <CardDescription>
-                {pending.families.length}{" "}
-                {pending.families.length === 1 ? "family" : "families"} ·{" "}
-                {pending.families.reduce(
-                  (total, item) => total + item.people.length,
-                  0
-                )}{" "}
-                people.{" "}
-                {pendingKind === "archive"
-                  ? "Restoring this complete archive will replace the current archive in this browser."
-                  : "Importing this GEDCOM file will add a new family without replacing the current archive."}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex gap-2">
-              <Button
-                onClick={() => {
-                  onImport(pending)
-                  setPending(null)
-                  setPendingKind(null)
-                }}
-              >
-                {pendingKind === "archive"
-                  ? "Restore complete archive"
-                  : "Add GEDCOM family"}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setPending(null)
-                  setPendingKind(null)
-                }}
-              >
-                Cancel
-              </Button>
-            </CardContent>
-          </Card>
-        )}
-        {error && (
-          <p
-            id={`${uid}-import-error`}
-            role="alert"
-            className="text-sm text-destructive"
-          >
-            {error}
-          </p>
-        )}
-        {digest && (
-          <details className="text-xs text-muted-foreground">
-            <summary className="cursor-pointer font-medium">
-              Verify last complete archive
-            </summary>
-            <p className="mt-2 break-all">SHA-256: {digest}</p>
-          </details>
         )}
       </DialogContent>
     </Dialog>
@@ -1540,10 +1667,16 @@ function SettingsDialog({
   archive,
   onChange,
   showLabel = false,
+  showTrigger = true,
+  open,
+  onOpenChange,
 }: {
   archive: Archive
-  onChange: (next: Archive) => void
+  onChange: (next: Archive, label: string) => void
   showLabel?: boolean
+  showTrigger?: boolean
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }) {
   const uid = useId()
   const settings = archive.settings,
@@ -1555,23 +1688,34 @@ function SettingsDialog({
         ...settings,
         [key]: value,
       })
-      if (result.success) onChange({ ...archive, settings: result.data })
+      if (result.success) {
+        const labels: Record<keyof Archive["settings"], string> = {
+          theme: `Display: ${String(value)} theme`,
+          direction: "Display: tree direction changed",
+          showPhotos: `Display: photos ${value ? "shown" : "hidden"}`,
+          showContact: `Display: contact details ${value ? "shown" : "hidden"}`,
+          generations: `Display: ${String(value)} generations`,
+        }
+        onChange({ ...archive, settings: result.data }, labels[key])
+      }
     }
   return (
-    <Dialog>
-      <DialogTrigger asChild>
-        <Button
-          variant="ghost"
-          size={showLabel ? "default" : "icon"}
-          aria-label="Settings"
-          className={
-            showLabel ? "w-full justify-center xl:justify-start" : undefined
-          }
-        >
-          <Icon icon={Settings02Icon} />
-          {showLabel && <span>Settings</span>}
-        </Button>
-      </DialogTrigger>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      {showTrigger && (
+        <DialogTrigger asChild>
+          <Button
+            variant="ghost"
+            size={showLabel ? "default" : "icon"}
+            aria-label="Settings"
+            className={
+              showLabel ? "w-full justify-center xl:justify-start" : undefined
+            }
+          >
+            <Icon icon={Settings02Icon} />
+            {showLabel && <span>Settings</span>}
+          </Button>
+        </DialogTrigger>
+      )}
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Settings</DialogTitle>
@@ -1749,7 +1893,7 @@ function FamilyDialog({
       <DialogTrigger asChild>
         <Button
           variant="ghost"
-          className="h-auto max-w-48 min-w-0 justify-start px-2 text-left"
+          className="min-h-11 max-w-48 min-w-0 flex-1 justify-start px-2 text-left sm:max-w-72"
         >
           <Icon icon={UserMultiple02Icon} />
           <span className="min-w-0">
@@ -1857,7 +2001,7 @@ function FamilyDialog({
               id={`${uid}-create`}
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Family name"
+              placeholder="e.g. The Rahman family"
               maxLength={120}
               aria-invalid={!!(name && !createValidation.success)}
               aria-describedby={
@@ -1877,7 +2021,7 @@ function FamilyDialog({
             id={`${uid}-first-person`}
             value={firstPersonName}
             onChange={(event) => setFirstPersonName(event.target.value)}
-            placeholder="Full name"
+            placeholder="e.g. Farhana Rahman"
             maxLength={120}
           />
         </Field>
@@ -1938,7 +2082,7 @@ function PersonDetails({
   )
   return (
     <section className="flex h-full min-h-0 flex-col">
-      <header className="flex items-start gap-3 p-5 pr-12 pb-4 lg:pr-5">
+      <header className="flex items-start gap-3 p-5 pr-12 pb-4 xl:pr-5">
         <Avatar className="size-12">
           <AvatarImage src={settings.showPhotos ? person.photo : ""} alt="" />
           <AvatarFallback className={tones[person.tone]}>
@@ -1966,13 +2110,13 @@ function PersonDetails({
           </Tooltip>
         )}
       </header>
-      <div className="flex flex-wrap gap-2 px-5 pb-4">
+      <div className="flex flex-wrap justify-between gap-2 px-5 pb-4">
         <RelationshipDialog
           family={family}
           selected={person}
           onSave={onRelationship}
           trigger={
-            <Button className="min-w-0 flex-1">
+            <Button>
               <Icon icon={UserAdd01Icon} />
               Add relative
             </Button>
@@ -2020,20 +2164,69 @@ function PersonDetails({
       </div>
       <Separator />
       <Tabs defaultValue="overview" className="min-h-0 flex-1 gap-0">
-        <ScrollArea className="w-full [&_[data-slot=scroll-area-viewport]]:!overflow-y-hidden">
-          <TabsList variant="line" className="mt-2 mb-px w-full min-w-max px-5">
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="relationships">Relationships</TabsTrigger>
-            <TabsTrigger value="life">Life</TabsTrigger>
-            <TabsTrigger value="contact">Contact</TabsTrigger>
-            <TabsTrigger value="media">Media</TabsTrigger>
-          </TabsList>
-          <ScrollBar orientation="horizontal" />
-        </ScrollArea>
+        <TabsList
+          variant="line"
+          className="mt-2 mb-px flex h-auto w-full justify-between gap-0 px-5"
+        >
+          <TabsTrigger
+            className="flex-none px-1 text-xs sm:text-sm"
+            value="overview"
+          >
+            Overview
+          </TabsTrigger>
+          <TabsTrigger
+            className="flex-none px-1 text-xs sm:text-sm"
+            value="relationships"
+          >
+            Family
+          </TabsTrigger>
+          <TabsTrigger
+            className="flex-none px-1 text-xs sm:text-sm"
+            value="life"
+          >
+            Life
+          </TabsTrigger>
+          <TabsTrigger
+            className="flex-none px-1 text-xs sm:text-sm"
+            value="contact"
+          >
+            Contact
+          </TabsTrigger>
+          <TabsTrigger
+            className="flex-none px-1 text-xs sm:text-sm"
+            value="media"
+          >
+            Media
+          </TabsTrigger>
+        </TabsList>
         <ScrollArea className="min-h-0 flex-1 [&_[data-slot=scroll-area-viewport]>div]:!block [&_[data-slot=scroll-area-viewport]>div]:!w-full">
           <TabsContent value="overview" className="space-y-3 p-5">
-            <Fact icon={Location01Icon} label="Home" value={person.location} />
-            <Fact icon={Briefcase01Icon} label="Work" value={person.work} />
+            <div className="rounded-xl bg-primary/5 p-4 ring-1 ring-primary/15">
+              <p className="text-xs font-medium tracking-wide text-primary uppercase">
+                Their story
+              </p>
+              <p className="mt-2 text-sm leading-6">
+                {person.note || "No story has been added yet."}
+              </p>
+            </div>
+            <div className="grid gap-3">
+              <Fact
+                icon={BirthdayCakeIcon}
+                label="Lifespan"
+                value={years(person)}
+              />
+              <Fact
+                icon={UserMultiple02Icon}
+                label="Family connections"
+                value={`${relations.length} ${relations.length === 1 ? "relationship" : "relationships"}`}
+              />
+              <Fact
+                icon={Location01Icon}
+                label="Home"
+                value={person.location}
+              />
+              <Fact icon={Briefcase01Icon} label="Work" value={person.work} />
+            </div>
           </TabsContent>
           <TabsContent value="relationships" className="space-y-3 p-5">
             <div className="rounded-xl bg-muted/50 p-4">
@@ -2066,6 +2259,10 @@ function PersonDetails({
                   item.id ===
                   (relation.from === person.id ? relation.to : relation.from)
               )
+              const perspectiveType = relationshipTypeForPerson(
+                relation,
+                person.id
+              )
               return (
                 <Card key={relation.id} className="gap-0 p-0 shadow-none">
                   <CardContent className="space-y-3 p-4">
@@ -2088,7 +2285,7 @@ function PersonDetails({
                       />
                     </div>
                     <Select
-                      value={relation.type}
+                      value={perspectiveType}
                       onValueChange={(value) => {
                         const result = relationshipTypeSchema.safeParse(value)
                         if (result.success)
@@ -2104,14 +2301,19 @@ function PersonDetails({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {relationshipOptions.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {relationshipChoiceLabel(
-                              option.value,
-                              person.name,
-                              other?.name
-                            )}
-                          </SelectItem>
+                        {relationshipGroups.map((group) => (
+                          <SelectGroup key={group.label}>
+                            <SelectLabel>{group.label}</SelectLabel>
+                            {group.types.map((value) => (
+                              <SelectItem key={value} value={value}>
+                                {relationshipChoiceLabel(
+                                  value,
+                                  person.name,
+                                  other?.name
+                                )}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
                         ))}
                       </SelectContent>
                     </Select>
@@ -2181,7 +2383,7 @@ function PersonDetails({
                   value={person.email || "Not added"}
                 />
                 <Fact
-                  icon={Home01Icon}
+                  icon={Call02Icon}
                   label="Phone"
                   value={person.phone || "Not added"}
                 />
@@ -2280,6 +2482,8 @@ export function RootstoryApp() {
     [detailsOpen, setDetailsOpen] = useState(true),
     [mobileDetails, setMobileDetails] = useState(false),
     [mobileNav, setMobileNav] = useState(false),
+    [mobileExportOpen, setMobileExportOpen] = useState(false),
+    [mobileSettingsOpen, setMobileSettingsOpen] = useState(false),
     [historyOpen, setHistoryOpen] = useState(false),
     [status, setStatus] = useState("All changes saved locally"),
     [collapsed, setCollapsed] = useState<Set<string>>(new Set()),
@@ -2289,6 +2493,9 @@ export function RootstoryApp() {
       archive.families[0],
     selected =
       family.people.find((item) => item.id === selectedId) || family.people[0]
+  useEffect(() => {
+    setTreeCommand({ id: Date.now(), type: "center-tree" })
+  }, [archive.settings.direction, family.id])
   useEffect(() => {
     void loadWorkspace()
       .then((workspace) => {
@@ -2314,7 +2521,11 @@ export function RootstoryApp() {
     if (!loaded) return
     const timer = window.setTimeout(() => {
       void saveWorkspace(archive, versions)
-        .then(() => setStatus("All changes saved locally"))
+        .then(() =>
+          setStatus((current) =>
+            current === "Saving…" ? "All changes saved locally" : current
+          )
+        )
         .catch(() =>
           setStatus(
             "Save failed: browser storage is full. Export a complete Rootstory archive, then remove large photos."
@@ -2324,6 +2535,19 @@ export function RootstoryApp() {
     return () => window.clearTimeout(timer)
   }, [archive, loaded, versions])
   useEffect(() => {
+    if (
+      status === "All changes saved locally" ||
+      status === "Saving…" ||
+      status.startsWith("Save failed")
+    )
+      return
+    const timer = window.setTimeout(
+      () => setStatus("All changes saved locally"),
+      4_000
+    )
+    return () => window.clearTimeout(timer)
+  }, [status])
+  useEffect(() => {
     if (!family.people.some((item) => item.id === selectedId))
       setSelectedId(family.anchorId || family.people[0]?.id)
   }, [family, selectedId])
@@ -2332,15 +2556,12 @@ export function RootstoryApp() {
     next: Archive | ((current: Archive) => Archive)
   ) => {
     setVersions((items) =>
-      trimHistory([
-        {
-          id: `v-${Date.now()}`,
-          label,
-          date: new Date().toISOString(),
-          archive: cloneArchive(archive),
-        },
-        ...items,
-      ])
+      pushHistory(items, {
+        id: `v-${Date.now()}`,
+        label,
+        date: new Date().toISOString(),
+        archive: cloneArchive(archive),
+      })
     )
     setStatus("Saving…")
     setArchive((current) => ({
@@ -2371,6 +2592,12 @@ export function RootstoryApp() {
       `Added ${person.name}`
     )
     setSelectedId(person.id)
+    setView("people")
+    if (window.matchMedia("(max-width: 1279px)").matches) setMobileDetails(true)
+    else setDetailsOpen(true)
+    setStatus(
+      `Created ${person.name} as an unconnected person. Use Add relative to connect them.`
+    )
   }
   const deletePerson = () => {
     const people = family.people.filter((item) => item.id !== selected.id)
@@ -2421,6 +2648,9 @@ export function RootstoryApp() {
       `Connected ${selected.name} and ${target.name}`
     )
     if (isNew) setSelectedId(target.id)
+    setStatus(
+      `${target.name} was connected to ${selected.name}'s family branch.`
+    )
   }
   const changeRelationship = (
     id: string,
@@ -2489,7 +2719,7 @@ export function RootstoryApp() {
   ].sort((a, b) => a - b)
   const choose = (id: string) => {
       setSelectedId(id)
-      if (window.matchMedia("(max-width: 1023px)").matches)
+      if (window.matchMedia("(max-width: 1279px)").matches)
         setMobileDetails(true)
       else setDetailsOpen(true)
     },
@@ -2501,6 +2731,7 @@ export function RootstoryApp() {
     },
     changeView = (next: View) => {
       setView(next)
+      setDetailsOpen(next === "tree")
       setMobileNav(false)
     }
   const nav = (next: View, label: string, icon: IconData) => (
@@ -2514,7 +2745,7 @@ export function RootstoryApp() {
   )
   return (
     <main className="flex h-svh flex-col overflow-hidden bg-background text-foreground print:h-auto print:min-h-svh print:overflow-visible">
-      <header className="flex h-16 shrink-0 items-center gap-1 border-b bg-background px-2 sm:gap-2 sm:px-5 print:hidden">
+      <header className="flex h-16 shrink-0 items-center gap-1 overflow-hidden border-b bg-background px-2 sm:gap-2 sm:px-5 print:hidden">
         <div className="flex shrink-0 items-center gap-2">
           <RootstoryMark className="size-9 text-primary" />
           <span className="hidden text-sm font-semibold tracking-tight md:inline">
@@ -2525,15 +2756,7 @@ export function RootstoryApp() {
           archive={archive}
           onChange={(next) => commit("Changed family", next)}
         />
-        <div className="ml-auto flex items-center gap-1 lg:hidden">
-          <PersonDialog
-            onSave={addPerson}
-            trigger={
-              <Button size="icon" aria-label="Add person">
-                <Icon icon={Add01Icon} />
-              </Button>
-            }
-          />
+        <div className="ml-auto flex shrink-0 items-center gap-1 xl:hidden">
           <Button
             variant="ghost"
             size="icon"
@@ -2543,7 +2766,7 @@ export function RootstoryApp() {
             <Icon icon={Menu01Icon} />
           </Button>
         </div>
-        <div className="ml-auto hidden items-center gap-1.5 lg:flex">
+        <div className="ml-auto hidden items-center gap-1.5 xl:flex">
           <PersonSearch
             family={family}
             query={query}
@@ -2570,13 +2793,16 @@ export function RootstoryApp() {
             label="Toggle theme"
             icon={archive.settings.theme === "dark" ? Sun02Icon : Moon02Icon}
             onClick={() =>
-              commit("Changed theme", {
-                ...archive,
-                settings: {
-                  ...archive.settings,
-                  theme: archive.settings.theme === "dark" ? "light" : "dark",
-                },
-              })
+              commit(
+                `Display: ${archive.settings.theme === "dark" ? "light" : "dark"} theme`,
+                {
+                  ...archive,
+                  settings: {
+                    ...archive.settings,
+                    theme: archive.settings.theme === "dark" ? "light" : "dark",
+                  },
+                }
+              )
             }
           />
           <ExportDialog
@@ -2585,29 +2811,20 @@ export function RootstoryApp() {
             onImport={(next) => commit("Imported data", next)}
             onStatus={setStatus}
           />
-          <PersonDialog
-            onSave={addPerson}
-            trigger={
-              <Button>
-                <Icon icon={Add01Icon} />
-                Add person
-              </Button>
-            }
-          />
         </div>
       </header>
       <span role="status" aria-live="polite" className="sr-only">
         {status}
       </span>
       <div className="flex min-h-0 flex-1">
-        <aside className="hidden w-40 shrink-0 flex-col items-stretch gap-1 border-r px-2 py-3 lg:flex 2xl:w-44 print:hidden">
+        <aside className="hidden w-40 shrink-0 flex-col items-stretch gap-1 border-r px-2 py-3 xl:flex 2xl:w-44 print:hidden">
           {nav("tree", "Tree", GitBranchIcon)}
           {nav("people", "People", UserMultiple02Icon)}
           {nav("timeline", "Timeline", HistoryIcon)}
           {nav("calendar", "Calendar", Calendar03Icon)}
           <Separator className="my-2 w-8" />
           <Tool
-            label="Print / PDF"
+            label="Print / save as PDF"
             icon={PrinterIcon}
             showLabel
             onClick={() => window.print()}
@@ -2615,7 +2832,7 @@ export function RootstoryApp() {
           <div className="mt-auto">
             <SettingsDialog
               archive={archive}
-              onChange={(next) => commit("Changed settings", next)}
+              onChange={(next, label) => commit(label, next)}
               showLabel
             />
           </div>
@@ -2638,7 +2855,7 @@ export function RootstoryApp() {
                       onClick={() =>
                         setZoom(
                           (value) =>
-                            Math.max(40, value - 10) as keyof typeof zooms
+                            Math.max(70, value - 10) as keyof typeof zooms
                         )
                       }
                     />
@@ -2757,6 +2974,7 @@ export function RootstoryApp() {
               selectedId={selected.id}
               onQueryChange={setQuery}
               choose={choose}
+              onAddPerson={addPerson}
             />
           )}
           {view === "timeline" && (
@@ -2779,7 +2997,7 @@ export function RootstoryApp() {
           )}
         </section>
         {detailsOpen && (
-          <aside className="hidden min-h-0 w-[25.2rem] shrink-0 overflow-hidden border-l bg-background lg:block print:hidden">
+          <aside className="hidden min-h-0 w-[23.1rem] shrink-0 overflow-hidden border-l bg-background xl:block print:hidden">
             <PersonDetails
               person={selected}
               family={family}
@@ -2790,7 +3008,7 @@ export function RootstoryApp() {
               onRelationshipChange={changeRelationship}
               onRelationshipDelete={deleteRelationship}
               onShowContact={() =>
-                commit("Showed contact details", {
+                commit("Display: contact details shown", {
                   ...archive,
                   settings: { ...archive.settings, showContact: true },
                 })
@@ -2802,7 +3020,7 @@ export function RootstoryApp() {
         )}
       </div>
       <Sheet open={mobileNav} onOpenChange={setMobileNav}>
-        <SheetContent side="left" className="w-80 lg:hidden">
+        <SheetContent side="left" className="w-80 xl:hidden">
           <SheetHeader>
             <SheetTitle>Rootstory workspace</SheetTitle>
             <SheetDescription>
@@ -2864,14 +3082,17 @@ export function RootstoryApp() {
                 className="col-span-2"
                 aria-label="Toggle theme"
                 onClick={() =>
-                  commit("Changed theme", {
-                    ...archive,
-                    settings: {
-                      ...archive.settings,
-                      theme:
-                        archive.settings.theme === "dark" ? "light" : "dark",
-                    },
-                  })
+                  commit(
+                    `Display: ${archive.settings.theme === "dark" ? "light" : "dark"} theme`,
+                    {
+                      ...archive,
+                      settings: {
+                        ...archive.settings,
+                        theme:
+                          archive.settings.theme === "dark" ? "light" : "dark",
+                      },
+                    }
+                  )
                 }
               >
                 <Icon
@@ -2882,36 +3103,69 @@ export function RootstoryApp() {
                 {archive.settings.theme === "dark" ? "Light mode" : "Dark mode"}
               </Button>
             </div>
-            <div className="grid grid-cols-2 gap-2 [&>button]:w-full [&>button]:justify-start">
-              <ExportDialog
-                archive={archive}
-                family={family}
-                onImport={(next) => commit("Imported data", next)}
-                onStatus={setStatus}
-                showLabel
-              />
-              <SettingsDialog
-                archive={archive}
-                onChange={(next) => commit("Changed settings", next)}
-                showLabel
-              />
+            <div className="grid gap-2 [&>button]:w-full [&>button]:justify-start">
               <Button
                 variant="outline"
-                aria-label="Print / PDF"
-                onClick={() => window.print()}
+                aria-label="Share and transfer"
+                onClick={() => {
+                  setMobileNav(false)
+                  setMobileExportOpen(true)
+                }}
+              >
+                <Icon icon={Share01Icon} />
+                Share &amp; transfer
+              </Button>
+              <Button
+                variant="outline"
+                aria-label="Settings"
+                onClick={() => {
+                  setMobileNav(false)
+                  setMobileSettingsOpen(true)
+                }}
+              >
+                <Icon icon={Settings02Icon} />
+                Settings
+              </Button>
+              <Button
+                variant="outline"
+                aria-label="Print / save as PDF"
+                onClick={() => {
+                  setMobileNav(false)
+                  window.requestAnimationFrame(() => window.print())
+                }}
               >
                 <Icon icon={PrinterIcon} />
-                Print / PDF
+                Print / save as PDF
               </Button>
             </div>
           </div>
         </SheetContent>
       </Sheet>
+      <ExportDialog
+        archive={archive}
+        family={family}
+        onImport={(next) => commit("Imported data", next)}
+        onStatus={setStatus}
+        showTrigger={false}
+        open={mobileExportOpen}
+        onOpenChange={setMobileExportOpen}
+      />
+      <SettingsDialog
+        archive={archive}
+        onChange={(next, label) => commit(label, next)}
+        showTrigger={false}
+        open={mobileSettingsOpen}
+        onOpenChange={setMobileSettingsOpen}
+      />
       <Sheet open={mobileDetails} onOpenChange={setMobileDetails}>
         <SheetContent
           side="bottom"
-          className="max-h-[85svh] rounded-t-3xl lg:hidden"
+          className="max-h-[85svh] rounded-t-3xl data-[side=bottom]:h-[min(42rem,85svh)] xl:hidden"
         >
+          <div
+            aria-hidden
+            className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-muted-foreground/35"
+          />
           <SheetHeader className="sr-only">
             <SheetTitle>{selected.name}</SheetTitle>
             <SheetDescription>Person details</SheetDescription>
@@ -2926,7 +3180,7 @@ export function RootstoryApp() {
             onRelationshipChange={changeRelationship}
             onRelationshipDelete={deleteRelationship}
             onShowContact={() =>
-              commit("Showed contact details", {
+              commit("Display: contact details shown", {
                 ...archive,
                 settings: { ...archive.settings, showContact: true },
               })
@@ -2946,28 +3200,49 @@ export function RootstoryApp() {
               the current archive as a recoverable snapshot.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-2">
+          <div className="max-h-[60svh] space-y-2 overflow-y-auto pr-1">
             {versions.length ? (
-              versions.map((version) => (
-                <Card
-                  key={version.id}
-                  className="border border-border shadow-none ring-0"
-                >
-                  <CardContent className="flex items-center justify-between p-3">
-                    <span>
-                      <span className="block text-sm font-medium">
-                        {version.label}
+              versions.map((version) => {
+                const snapshotFamily =
+                  version.archive.families.find(
+                    (item) => item.id === version.archive.activeFamilyId
+                  ) || version.archive.families[0]
+                const savedAt = new Date(version.date).toLocaleString()
+                return (
+                  <Card
+                    key={version.id}
+                    className="border border-border shadow-none ring-0"
+                  >
+                    <CardContent className="flex items-center justify-between gap-3 p-3">
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium">
+                          {version.label}
+                        </span>
+                        <span
+                          className="block text-xs text-muted-foreground"
+                          title={savedAt}
+                        >
+                          {relativeTime(version.date)} · {snapshotFamily.name}
+                        </span>
+                        <span className="block text-xs text-muted-foreground">
+                          {snapshotFamily.people.length}{" "}
+                          {snapshotFamily.people.length === 1
+                            ? "person"
+                            : "people"}
+                        </span>
                       </span>
-                      <span className="block text-xs text-muted-foreground">
-                        {new Date(version.date).toLocaleString()}
-                      </span>
-                    </span>
-                    <Button variant="outline" onClick={() => restore(version)}>
-                      Restore
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))
+                      <ConfirmAction
+                        trigger={<Button variant="outline">Restore</Button>}
+                        title={`Restore “${version.label}”?`}
+                        description={`Restore ${snapshotFamily.name} as it was on ${savedAt}. Your current archive will remain available as a new history entry.`}
+                        action="Restore this version"
+                        destructive={false}
+                        onConfirm={() => restore(version)}
+                      />
+                    </CardContent>
+                  </Card>
+                )
+              })
             ) : (
               <p className="text-sm text-muted-foreground">
                 No saved changes yet.
@@ -3277,6 +3552,16 @@ function TreeView({
   const container = useRef<HTMLDivElement>(null)
   const nodes = useRef(new Map<string, HTMLButtonElement>())
   const scrollArea = useRef<HTMLDivElement>(null)
+  const drag = useRef<{
+    pointerId: number
+    x: number
+    y: number
+    left: number
+    top: number
+    moved: boolean
+  } | null>(null)
+  const suppressClick = useRef(false)
+  const [dragging, setDragging] = useState(false)
   const levels = generationMap(family)
   const maxDepth =
     settings.generations === "all" ? Infinity : Number(settings.generations)
@@ -3285,6 +3570,47 @@ function TreeView({
     .sort((a, b) => a - b)
   if (settings.direction === "up" || settings.direction === "left")
     rows.reverse()
+  const startDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!event.isPrimary || event.button !== 0) return
+    if ((event.target as HTMLElement).closest("button, input, select, a"))
+      return
+    const viewport = scrollArea.current
+    if (!viewport) return
+    drag.current = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      left: viewport.scrollLeft,
+      top: viewport.scrollTop,
+      moved: false,
+    }
+  }
+  const moveDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const viewport = scrollArea.current
+    const current = drag.current
+    if (!viewport || !current || current.pointerId !== event.pointerId) return
+    const x = event.clientX - current.x
+    const y = event.clientY - current.y
+    if (!current.moved && Math.hypot(x, y) < 5) return
+    if (!current.moved) {
+      current.moved = true
+      viewport.setPointerCapture(event.pointerId)
+      setDragging(true)
+    }
+    event.preventDefault()
+    viewport.scrollLeft = current.left - x
+    viewport.scrollTop = current.top - y
+  }
+  const finishDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const viewport = scrollArea.current
+    const current = drag.current
+    if (!viewport || !current || current.pointerId !== event.pointerId) return
+    suppressClick.current = current.moved
+    drag.current = null
+    setDragging(false)
+    if (viewport.hasPointerCapture(event.pointerId))
+      viewport.releasePointerCapture(event.pointerId)
+  }
   useEffect(() => {
     if (!command) return
     const viewport = scrollArea.current
@@ -3318,7 +3644,7 @@ function TreeView({
         const heightRatio =
           (viewport.clientHeight - 176) / container.current.offsetHeight
         const fit = Math.max(
-          40,
+          70,
           Math.min(140, Math.floor(Math.min(widthRatio, heightRatio) * 10) * 10)
         ) as keyof typeof zooms
         onZoomChange(fit)
@@ -3327,10 +3653,47 @@ function TreeView({
             centerElement(container.current)
           )
         })
-      } else centerPerson()
+      } else if (command.type === "center-tree")
+        viewport.clientWidth < 640
+          ? centerPerson()
+          : centerElement(container.current)
+      else centerPerson()
     })
     return () => window.cancelAnimationFrame(frame)
   }, [command, onZoomChange, selectedId])
+  useEffect(() => {
+    let frame = 0
+    const centerSelectedOnMobile = () => {
+      if (window.innerWidth >= 640) return
+      frame = window.requestAnimationFrame(() => {
+        const viewport = scrollArea.current
+        const element = nodes.current.get(selectedId)
+        if (!viewport || !element) return
+        const viewportRect = viewport.getBoundingClientRect()
+        const elementRect = element.getBoundingClientRect()
+        viewport.scrollTo({
+          left:
+            viewport.scrollLeft +
+            elementRect.left -
+            viewportRect.left -
+            viewportRect.width / 2 +
+            elementRect.width / 2,
+          top:
+            viewport.scrollTop +
+            elementRect.top -
+            viewportRect.top -
+            viewportRect.height / 2 +
+            elementRect.height / 2,
+          behavior: "auto",
+        })
+      })
+    }
+    window.addEventListener("resize", centerSelectedOnMobile)
+    return () => {
+      window.removeEventListener("resize", centerSelectedOnMobile)
+      window.cancelAnimationFrame(frame)
+    }
+  }, [selectedId])
   if (!people.length)
     return (
       <div className="grid h-full place-items-center p-8 text-center">
@@ -3355,9 +3718,28 @@ function TreeView({
         ref={scrollArea}
         tabIndex={0}
         aria-label="Scrollable family tree"
-        className="size-full touch-auto overflow-auto overscroll-contain scroll-smooth focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none print:overflow-visible"
+        className={cn(
+          "size-full touch-none overflow-auto overscroll-contain scroll-smooth select-none focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none print:overflow-visible",
+          dragging ? "cursor-grabbing" : "cursor-grab"
+        )}
+        onPointerDown={startDrag}
+        onPointerMove={moveDrag}
+        onPointerUp={finishDrag}
+        onPointerCancel={(event) => {
+          suppressClick.current = false
+          drag.current = null
+          setDragging(false)
+          if (event.currentTarget.hasPointerCapture(event.pointerId))
+            event.currentTarget.releasePointerCapture(event.pointerId)
+        }}
+        onClickCapture={(event) => {
+          if (!suppressClick.current) return
+          suppressClick.current = false
+          event.preventDefault()
+          event.stopPropagation()
+        }}
       >
-        <div className="flex min-h-[calc(100svh-4rem)] min-w-max items-center justify-center px-6 pt-32 pb-24 sm:px-12 sm:pt-28 print:min-h-0 print:p-4">
+        <div className="flex min-h-[calc(100%+24rem)] min-w-[calc(100%+24rem)] items-center justify-center px-6 pt-32 pb-24 sm:px-12 sm:pt-28 print:min-h-0 print:min-w-0 print:p-4">
           <div
             ref={container}
             className={cn(
@@ -3424,19 +3806,28 @@ function TreeView({
               const to = family.people.find(
                 (person) => person.id === relationship.to
               )!
-              const description = relationship.type.includes("parent")
-                ? `${from.name} is a ${relationshipLabel(relationship.type).toLowerCase()} of ${to.name}.`
-                : relationship.type === "child"
-                  ? `${from.name} is a parent of ${to.name}.`
-                  : `${from.name} and ${to.name} are ${relationshipLabel(relationship.type).toLowerCase()}.`
+              const description = relationshipDescription(
+                relationship,
+                from.name,
+                to.name
+              )
               return <li key={relationship.id}>{description}</li>
             })}
           </ul>
         </section>
       </div>
       <div className="pointer-events-none absolute top-24 right-4 z-20 rounded-md border bg-background/95 px-2 py-1 text-xs text-muted-foreground shadow-sm sm:hidden print:hidden">
-        Drag to explore
+        Drag to explore · Tap a person for details
       </div>
+      <details className="absolute right-4 bottom-4 z-20 hidden max-w-72 rounded-xl border bg-background p-3 text-sm shadow-sm xl:block print:hidden">
+        <summary className="cursor-pointer font-medium">
+          How this tree works
+        </summary>
+        <p className="mt-2 leading-5 text-muted-foreground">
+          Select a person to open their story. Add relative connects someone to
+          this tree; standalone records stay in People until connected.
+        </p>
+      </details>
       <div className="absolute bottom-3 left-3 z-20 grid grid-cols-2 gap-x-3 gap-y-1 rounded-lg bg-background px-3 py-2 text-xs whitespace-nowrap text-muted-foreground sm:bottom-4 sm:left-4 sm:flex print:hidden">
         <span>
           <span
@@ -3487,6 +3878,7 @@ function PeopleView({
   selectedId,
   onQueryChange,
   choose,
+  onAddPerson,
 }: {
   family: Family
   people: Person[]
@@ -3495,6 +3887,7 @@ function PeopleView({
   selectedId: string
   onQueryChange: (value: string) => void
   choose: (id: string) => void
+  onAddPerson: (person: Person) => void
 }) {
   const [sort, setSort] = useState<"name" | "birth" | "relation">("name"),
     [status, setStatus] = useState<"all" | "living" | "deceased">("all"),
@@ -3522,12 +3915,25 @@ function PeopleView({
   return (
     <div className="h-[calc(100svh-4rem)] [scrollbar-width:none] overflow-auto [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
       <div className="mx-auto max-w-4xl space-y-6 p-4 sm:p-8">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">People</h1>
-          <p className="text-sm text-muted-foreground">
-            {family.people.length}{" "}
-            {family.people.length === 1 ? "person" : "people"} in {family.name}.
-          </p>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div className="space-y-1">
+            <h1 className="text-2xl font-semibold tracking-tight">People</h1>
+            <p className="text-sm text-muted-foreground">
+              {family.people.length}{" "}
+              {family.people.length === 1 ? "person" : "people"} in{" "}
+              {family.name}. Standalone records can be connected later from
+              person details.
+            </p>
+          </div>
+          <PersonDialog
+            onSave={onAddPerson}
+            trigger={
+              <Button variant="outline" className="shrink-0">
+                <Icon icon={Add01Icon} />
+                Create unconnected person
+              </Button>
+            }
+          />
         </div>
         <div className="grid gap-3 md:grid-cols-[minmax(12rem,1fr)_auto] md:items-end">
           <div className="relative">
@@ -3717,7 +4123,7 @@ function TimelineView({
     event.kind === "birth"
       ? "Birth"
       : event.kind === "death"
-        ? "In remembrance"
+        ? "Remembered"
         : "Relationship"
   const eventDot = (event: FamilyEvent) =>
     event.kind === "birth"
@@ -3739,21 +4145,21 @@ function TimelineView({
         <div className="space-y-3 border-b pb-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div
-              className="flex gap-1 overflow-x-auto"
+              className="grid grid-cols-2 gap-1 sm:flex"
               role="group"
               aria-label="Filter timeline events"
             >
               {[
                 ["all", "All events"],
                 ["birth", "Births"],
-                ["death", "Remembrances"],
+                ["death", "Remembered"],
                 ["relationship", "Relationships"],
               ].map(([value, label]) => (
                 <Button
                   key={value}
                   variant={kind === value ? "secondary" : "ghost"}
                   size="sm"
-                  className="shrink-0"
+                  className="w-full sm:w-auto sm:shrink-0"
                   aria-pressed={kind === value}
                   onClick={() => setKind(value as typeof kind)}
                 >
@@ -3849,7 +4255,7 @@ function TimelineView({
                         {event.personId === selectedId && (
                           <Button
                             variant="ghost"
-                            size="xs"
+                            size="sm"
                             className="mb-2 ml-3"
                             onClick={() => viewInTree(event.personId)}
                           >
@@ -3941,7 +4347,7 @@ function CalendarView({
       ? "Anniversary"
       : peopleById.get(event.personId)?.living
         ? "Birthday"
-        : "Birthday · in remembrance"
+        : "Birthday · remembered"
   const exportDates = () => {
     download(
       exportCalendar(family),
@@ -3959,7 +4365,8 @@ function CalendarView({
               Family calendar
             </h1>
             <p className="text-sm text-muted-foreground">
-              Birthdays and anniversaries, repeated every year.
+              Complete birthdays and anniversaries, repeated every year. Partial
+              dates remain visible in the Timeline.
             </p>
           </div>
           <Button variant="outline" onClick={exportDates}>
@@ -4095,7 +4502,7 @@ function CalendarView({
                         {event.personId === selectedId && (
                           <Button
                             variant="ghost"
-                            size="xs"
+                            size="sm"
                             className="mr-1 shrink-0"
                             onClick={() => viewInTree(event.personId)}
                           >

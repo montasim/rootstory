@@ -46,7 +46,7 @@ test("GEDCOM round-trip preserves people and parent links", () => {
   )
   const partner = imported.relationships.find((item) => item.type === "partner")
   assert.equal(partner?.date, "2015-06-20")
-  assert.equal(partner.location, "Lisbon, Portugal")
+  assert.equal(partner.location, "Dhaka, Bangladesh")
 })
 
 test("GEDCOM groups parents and never exports siblings as children", () => {
@@ -67,8 +67,11 @@ test("read-only HTML escapes every user-controlled field", () => {
 test("read-only HTML excludes living and private fields", () => {
   const family = structuredClone(demoArchive.families[0])
   const html = exportReadOnlyHtml(family)
-  assert.match(html, /Elias Moreno/)
-  assert.doesNotMatch(html, /Ada Moreno|ada@example\.test|Lisbon, Portugal/)
+  assert.match(html, /Azizur Rahman/)
+  assert.doesNotMatch(
+    html,
+    /Farhana Rahman|farhana@example\.test|Dhaka, Bangladesh/
+  )
   assert.match(
     html,
     /Living people, contact details, photos, locations and notes are excluded/
@@ -79,8 +82,8 @@ test("calendar export contains recurring birthdays and anniversaries", () => {
   const calendar = exportCalendar(demoArchive.families[0])
   assert.match(calendar, /BEGIN:VCALENDAR/)
   assert.match(calendar, /RRULE:FREQ=YEARLY/)
-  assert.match(calendar, /Ada Moreno — birthday/)
-  assert.match(calendar, /Ada Moreno and Noa Silva: partner/)
+  assert.match(calendar, /Farhana Rahman — birthday/)
+  assert.match(calendar, /Farhana Rahman and Samira Ahmed: partner/)
 })
 
 test("relationship direction and generation levels are stable", () => {

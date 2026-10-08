@@ -19,17 +19,17 @@ test("partial dates accept supported precision and reject impossible dates", () 
 
 test("person fields use category-specific validation", () => {
   const base = {
-    name: "Ada Moreno",
+    name: "Farhana Rahman",
     relation: "You",
     gender: "female",
     birthDate: "1988-04-12",
     birthQualifier: "exact",
     living: true,
     deathDate: "",
-    location: "Lisbon",
+    location: "Dhaka",
     work: "Architect",
-    email: "ada@example.test",
-    phone: "+351 210 000 000",
+    email: "farhana@example.test",
+    phone: "+880 1712-345678",
     note: "Story",
   }
   assert.equal(personInputSchema.safeParse(base).success, true)
@@ -64,11 +64,11 @@ test("relationship and settings selects are validated with their text fields", (
   const relationship = {
     mode: "new",
     targetId: "",
-    name: "Noa Silva",
+    name: "Samira Ahmed",
     gender: "male",
     type: "partner",
     date: "2026-10",
-    location: "Lisbon",
+    location: "Dhaka",
   }
   assert.equal(relationshipInputSchema.safeParse(relationship).success, true)
   assert.equal(
